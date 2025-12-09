@@ -10,17 +10,61 @@ esn1 = esns[1]
 esn2 = esns[2]
 esn3 = esns[3]
 
-c = 0.0:0.1:1.0
+# c=0:ρ=23, c=1:ρ=28. (3-113)
+c = -4.0:0.1:16.0
 outputs_c = []
 output_layer_new = deepcopy(readouts[1])
 
+rho_vals_z = []
+z_max_vals = []
+rho_vals_x = []
+x_max_vals = []
+
+predict_len = 25000
+transient_len = 10000
+
 for (i, c_val) in enumerate(c)
-    W_out_new = (1 - c_val) * W_out2 + c_val * W_out3
+    W_out_new = (1 - c_val) * W_out1 + c_val * W_out2
     output_layer_new.output_matrix[:,:] = W_out_new
-    # output_layer_new.last_value[:] = last_value1
+    output_layer_new.last_value[:] = [1.0 1.0 1.0]
     output = esn1(Generative(predict_len), output_layer_new)
+
+    for j in transient_len:size(output, 2)-1
+        z_prev = output[3, j-1]
+        z_curr = output[3, j]
+        z_next = output[3, j+1]
+        x_prev = output[1, j-1]
+        x_curr = output[1, j]
+        x_next = output[1, j+1]
+        if z_prev < z_curr > z_next
+            push!(rho_vals_z, c_val)
+            push!(z_max_vals, z_curr)
+        end
+        if x_prev < x_curr > x_next
+            push!(rho_vals_x, c_val)
+            push!(x_max_vals, x_curr)
+        end
+    end
     push!(outputs_c, output)
 end
+
+CairoMakie.activate!()
+
+fig = Figure(size=(1500, 1500), fontsize=14)
+
+ax1 = Axis(fig[1, 1], title = "Z-axis Maxima", xlabel = "c", ylabel = "z_max")
+ax2 = Axis(fig[2, 1], title = "X-axis Maxima", xlabel = "c", ylabel = "x_max")
+
+Makie.scatter!(ax1, rho_vals_z, z_max_vals,
+                        markersize = 0.5,
+                        color = :black)
+
+Makie.scatter!(ax2, rho_vals_x, x_max_vals,
+                        markersize = 0.5,
+                        color = :black)
+
+display(fig)
+
 
 
 GLMakie.activate!() # (title = "Custom title", fxaa = false)

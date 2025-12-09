@@ -79,7 +79,7 @@ function ESN(train_data::AbstractArray, in_size::Int, res_size::Int;
         input_matrix, bias_vector)
     else
         states = create_states(inner_res_driver, train_data, washout, reservoir_matrix,
-        input_matrix, bias_vector, initial_state)
+                                input_matrix, bias_vector, copy(initial_state))
     end
     
     train_data = train_data[:, (washout + 1):end]

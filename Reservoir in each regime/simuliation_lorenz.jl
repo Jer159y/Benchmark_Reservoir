@@ -31,18 +31,58 @@ function lorenz_jac!(J, u, p, t)
     return nothing
 end
 
-σ = 10.0
-β = 8.0 / 3.0
+function gen_lorenz_data(ρ_values, u0s, t_simulation, t_transient)
+    data_used = []
+    
+    for (ρ, u0) in Iterators.product(ρ_values, u0s)
+        print("\rProgress: ρ=$(round(ρ, digits=1)), u0=$(u0)")
+        p = [10.0, ρ, 8.0 / 3.0]
+        prob = ODEProblem(lorenz!, u0, t_simulation, p)
+        sol = solve(prob, Tsit5(), reltol=1e-6, abstol=1e-6, saveat=0.02)
+        push!(data_used, (ρ=ρ, u0=u0, t=sol.t, u=hcat(sol.u...)))
+    end
+    return data_used
+end
 
-u0 = [1.0, 1.0, 1.0]
+function cal_lyapunov_analytic(ρ_values, u0, t_simulation, t_transient)
+    λs = []
+
+    for ρ in ρ_values
+        p = [10.0, ρ, 8.0 / 3.0]
+        ds = ContinuousDynamicalSystem(lorenz!, u0, p)
+        ds = TangentDynamicalSystem(ds; J=lorenz_jac!)
+        λ = lyapunovspectrum(ds, round(Int, (t_simulation[2]-t_simulation[1])/0.02); Δt=0.02, Ttr=t_transient*0.02)
+        push!(λs, (ρ=ρ, λ=λ))
+    end
+    return λs
+end
+
+ρs = [28.0] # [12.0, 23.0, 28.0, 100.0]
+
 t_simulation = (0.0, 500.0)
 t_transient = 200.0
 
-rho_range = 0:0.1:110
-rho_used = [23.0, 28.0, 100.0]
+u0s = [
+    [1.0, 1.0, 1.0],
+    [0.0, 1.0, 1.05],
+    [0.5, 0.5, 0.5],
+    [10.0, 10.0, 10.0],
+    [-5.0, -5.0, 25.0],
+    [0.1, 0.1, 0.1],
+    [2.0, 3.0, 4.0],
+    [-1.0, -1.0, -1.0],
+    [5.0, 5.0, 5.0],
+    [-10.0, 10.0, 10.0]
+]
 
-λs = []
-data_used = []
+data_used = gen_lorenz_data(ρs, u0s, t_simulation, t_transient)
+# λs = cal_lyapunov_analytic(ρs, u0s[1], t_simulation, t_transient)
+
+
+"""
+u0 = [1.0, 1.0, 1.0]
+rho_used = [23.0, 28.0, 100.0]
+rho_range = 0:0.1:110
 
 rho_vals_z = Float64[]
 z_max_vals = Float64[]
@@ -90,6 +130,6 @@ for (i, ρ) in enumerate(rho_used) # or rho_used
         end
     end
 end
-
+"""
 # fig1 = plot_bifurcation_diagram(rho_vals_x, x_max_vals, rho_vals_z, z_max_vals, data_used)
 # fig2 = plot_phase_space(data_used)

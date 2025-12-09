@@ -1,0 +1,27 @@
+병렬화 방식 비교 (Julia)
+
+1. Multi Threads
+
+단일 프로세스 내 CPU 코어
+메모리 공유 (같은 메모리 공간), 데이터 전송 필요없음, 오버헤드 낮음, 확장성 단일 머신, 안정성 한 스레드 오류 = 전체 중단
+
+Threads.@threads
+
+터미널에서 새로 시작해서 julia -t 8 (or auto) 설정하고 파일 실행하던지,
+cmd+,로 설정 열고, julia.NumThreads 검색, 원하는 숫자 입력 8 or auto
+Threads.nthreads() 확인 가능.
+
+2. Distributed (분산 처리)
+
+여러 프로세스 (CPU만 사용)
+메모리 독립 (각 프로세스 별도 메모리), 데이터 전송 직렬화 필요, 오버헤드 높음 (프로세스 생성, 통신), 확장성 여러 머신 가능, 안정성 워커 독립적
+
+Distributed.jl, pmap
+
+여러 개의 독립적인 Julia 프로세스를 생성하여 작업 분배.
+
+3. GPU 병렬화
+
+GPU 코어 (수천 개)
+ESN 학습부터 GPU를 지원하게 수정해야 함, 하이퍼 파라미터 탐색은 독립적인 작업의 반복이므로 CPU 병렬화가 더 적합함.
+CUDA.jl, Metal.jl, AMDGPU.jl
