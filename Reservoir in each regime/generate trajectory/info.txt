@@ -1,0 +1,13 @@
+[1st file]
+
+1. Lorenz system
+
+picked ρ values: 23.0(fixed point), 28.0(chaotic), 100.0(periodic)
+
+reference bifurcation points:
+ρ<1	정지 (No Convection), 안정된 원점
+1<ρ<24.74	안정된 흐름 (Steady Convection), 두 개의 안정된 고정점
+ρ≈24.74	혼돈으로의 전환, 어트랙터 탄생
+ρ>24.74	안정적인 혼돈 (Chaos), 이상한 어트랙터
+
+2. 

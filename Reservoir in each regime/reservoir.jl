@@ -95,6 +95,77 @@ function gen_trained_data(data; shift=1, washout=1000, train_len=5000, predict_l
             esn=esn, readout=output_layer, param=esn_param)
 end
 
+function run_closed_prediction(data; shift=1, washout=1000, train_len=5000, predict_len=1250, rng=MersenneTwister(42))
+    args = HyperParams(1500, 0.1, 30 / 1500, 0.1, 0.2, washout)
+    training_method = StandardRidge(1e-6)
+
+    input_data, target_data, test_data = train_test_split(data, shift, washout, train_len, predict_len)
+
+    esn_param = standardParam(input_data, args)
+    esn_param[:initial_state] = zeros(args.res_size)
+    esn = generate_esn(esn_param, rng)
+    readout = train(esn, target_data, training_method)
+
+    predictive_output = esn(Predictive(test_data), readout)
+    closed_output = esn(Generative(predict_len), readout)
+
+    test_start = shift + train_len + 1
+    test_range = test_start:(test_start + predict_len - 1)
+    test_time = data.t[test_range]
+
+    return (ρ=data.ρ, u0=data.u0, input_data=input_data, target_data=target_data, test_data=test_data,
+            test_time=test_time, predictive_output=predictive_output, closed_output=closed_output,
+            esn=esn, readout=readout, param=esn_param)
+end
+
+function build_closed_prediction_runs(datas; shift=1, washout=1000, train_len=5000, predict_len=1250, rng=MersenneTwister(42))
+    runs = []
+    for data in datas
+        push!(runs, run_closed_prediction(data; shift=shift, washout=washout, train_len=train_len,
+                                            predict_len=predict_len, rng=rng))
+    end
+    return runs
+end
+
+function plot_closed_predictions(base_run, other_runs)
+    fig = Figure(size=(1200, 900))
+    coords = ["x(t)", "y(t)", "z(t)"]
+    palette = [:red, :blue, :green, :purple, :orange, :teal, :brown, :magenta]
+
+    for i in 1:3
+        left_ax = Axis(fig[i, 1], ylabel=coords[i])
+        lines!(left_ax, base_run.test_time, base_run.test_data[i, :], color=:black, label="target/test")
+        lines!(left_ax, base_run.test_time, base_run.closed_output[i, :], color=:red, alpha=0.7, label="closed pred")
+        scatter!(left_ax, base_run.test_time[1], base_run.test_data[i, 1], color=:black, markersize=8)
+        if i == 1
+            left_ax.title = "Base start (ρ=$(base_run.ρ))"
+            axislegend(left_ax, position=:rt)
+        elseif i == 3
+            left_ax.xlabel = "time"
+        end
+
+        right_ax = Axis(fig[i, 2], ylabel=coords[i])
+        if i == 1
+            right_ax.title = "Closed preds from other starts"
+        elseif i == 3
+            right_ax.xlabel = "time"
+        end
+
+        for (j, run) in enumerate(other_runs)
+            color = palette[(j - 1) % length(palette) + 1]
+            label = "ρ=$(round(run.ρ, digits=2)), u0=$(round.(run.u0; digits=2))"
+            lines!(right_ax, run.test_time, run.closed_output[i, :], color=color, label=label)
+            scatter!(right_ax, run.test_time[1], run.closed_output[i, 1], color=color, markersize=6)
+        end
+
+        if i == 1 && !isempty(other_runs)
+            axislegend(right_ax, position=:rt, nbanks=2)
+        end
+    end
+
+    return fig
+end
+
 
 rng = rand(Int); println("Random seed: ", rng)
 rng = MersenneTwister(rng)
@@ -112,6 +183,18 @@ results0 = gen_trained_data(data_used[1]; rng=rng)
 results1 = gen_trained_data(decay_data[1]; rng=rng)
 results2 = gen_trained_data(transient_data[1]; rng=rng)
 results3 = gen_trained_data(cutting_decay[1]; rng=rng)
+
+if @isdefined(data_used)
+    base_index = 1
+    closed_runs = build_closed_prediction_runs(data_used; shift=1, washout=1000, train_len=5000,
+                                                predict_len=1250, rng=rng)
+    other_runs = closed_runs[setdiff(1:length(closed_runs), [base_index])]
+    fig_closed = plot_closed_predictions(closed_runs[base_index], other_runs)
+    display(fig_closed)
+end
+
+
+
 
 # esn_LE = LyapunovExponent(esn, readout, 1; all_LE=false)[1]
 # println(propertynames(esns[1]), ", ", propertynames(readouts[1]))
