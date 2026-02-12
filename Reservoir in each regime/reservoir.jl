@@ -2,87 +2,16 @@
 2nd file
 """
 
-function exponential_decay(u, t, decay_rate)
-    decay_factors = exp.(-decay_rate .* t)
-    decay_factors = repeat(decay_factors', size(u, 1), 1)
-    u_modified = u .* decay_factors
-    return u_modified
-end
-
-function transient_removal(u, t, transient_time)
-    indices = findall(t .>= transient_time)
-    println("Removing transient up to t = $transient_time. New data length: $(length(indices))")
-    t_new = t[indices]
-    u_new = u[:, indices]
-    return t_new, u_new
-end
-
-function cutting(datas, cut_len)
-    new_datas = []
-    u_len = size(datas[1].u, 2)
-    num = floor(Int, u_len / cut_len)
-    println("Generate $num segments.")
-    for data in datas
-        for i in 0:(num - 1)
-            start_idx = i * cut_len + 1
-            end_idx = start_idx + cut_len - 1
-            t_segment = data.t[start_idx:end_idx]
-            u_segment = data.u[:, start_idx:end_idx]
-            push!(new_datas, (ρ=data.ρ, u0=data.u0, t=t_segment, u=u_segment))
-        end
-    end
-    return new_datas
-end
-
-function modify_data(data_used, modify_function)
-    new_data = []
-    for data in data_used
-        ρ = data.ρ
-        u0 = data.u0
-        t = data.t
-        u = data.u
-
-        ρ_new, u0_new, t_new, u_new = modify_function(ρ, u0, t, u)
-        push!(new_data, (ρ=ρ_new, u0=u0_new, t=t_new, u=u_new))
-    end
-    return new_data
-end
-
-function check_data_plot(num, data_used, new_data)
-    fig = Figure(size=(800, 600))
-    ax = Axis(fig[1, 1],
-            xlabel = "Time",
-            ylabel = "State Variables",
-            title = "Lorenz System State Variables Over Time (Data Set $num)")
-    lines!(ax, data_used[num].t, data_used[num].u[1, :], color = :blue, alpha=0.3, label = "x(t)")
-    lines!(ax, new_data[num].t, new_data[num].u[1, :], color = :red, alpha=0.3, label = "Modified x(t)")
-    display(fig)
-end
-
-function check_matrix_spectral(esns, readouts)
-    for i in 1:length(esns)
-        esn = esns[i]
-        readout = readouts[i]
-        W_in = esn.input_matrix
-        W_res = esn.reservoir_matrix
-        W_out = readout.output_matrix
-        W = W_res + W_in * W_out
-        ρ_res = maximum(abs.(eigvals(W_res)))
-        ρ_W = maximum(abs.(eigvals(W)))
-        println("ρ = $(round(ρ_res, digits=4)), ρ(W) = $(round(ρ_W, digits=4))") # 고민 좀...
-    end
-end
-
 function train_test_split(data, shift, washout, train_len, predict_len)
-    input_data = data.u[:, shift:(shift + train_len - 1)]
-    target_data = data.u[:, (washout + shift + 1):(shift + train_len)]
-    test_data = data.u[:, (shift + train_len + 1):(shift + train_len + predict_len)]
+    input_data = data[:, shift:(shift + train_len - 1)]
+    target_data = data[:, (washout + shift + 1):(shift + train_len)]
+    test_data = data[:, (shift + train_len + 1):(shift + train_len + predict_len)]
     return input_data, target_data, test_data
 end
 
-function gen_trained_data(data; shift=1, washout=1000, train_len=5000, predict_len=1250, rng=MersenneTwister(42))
-
-    args = HyperParams(1500, 0.1, 30 / 1500, 0.1, 0.2, washout)
+function gen_trained_data(data; shift=1, washout=1000, train_len=5000, predict_len=1250, 
+                          res_size=1000, rng=MersenneTwister(42))
+    args = HyperParams(res_size, 0.9, 30 / 1500, 0.1, 0.4, washout)
     training_method = StandardRidge(1e-6)
 
     input_data, target_data, test_data = train_test_split(data, shift, washout, train_len, predict_len)
@@ -95,27 +24,20 @@ function gen_trained_data(data; shift=1, washout=1000, train_len=5000, predict_l
             esn=esn, readout=output_layer, param=esn_param)
 end
 
-function run_closed_prediction(data; shift=1, washout=1000, train_len=5000, predict_len=1250, rng=MersenneTwister(42))
-    args = HyperParams(1500, 0.1, 30 / 1500, 0.1, 0.2, washout)
-    training_method = StandardRidge(1e-6)
-
-    input_data, target_data, test_data = train_test_split(data, shift, washout, train_len, predict_len)
-
-    esn_param = standardParam(input_data, args)
-    esn_param[:initial_state] = zeros(args.res_size)
-    esn = generate_esn(esn_param, rng)
-    readout = train(esn, target_data, training_method)
-
-    predictive_output = esn(Predictive(test_data), readout)
-    closed_output = esn(Generative(predict_len), readout)
+function run_closed_prediction(data; shift=1, washout=1000, train_len=5000, predict_len=1250, 
+                                res_size=1500, rng=MersenneTwister(42))
+    
+    trained = gen_trained_data(data; shift=shift, washout=washout, train_len=train_len, 
+                                predict_len=predict_len, res_size=res_size, rng=rng)
+    predictive_output = trained.esn(Predictive(trained.test_data), trained.readout)
+    closed_output = trained.esn(Generative(predict_len), trained.readout)
 
     test_start = shift + train_len + 1
     test_range = test_start:(test_start + predict_len - 1)
-    test_time = data.t[test_range]
+    test_time = collect(test_range)
 
-    return (ρ=data.ρ, u0=data.u0, input_data=input_data, target_data=target_data, test_data=test_data,
-            test_time=test_time, predictive_output=predictive_output, closed_output=closed_output,
-            esn=esn, readout=readout, param=esn_param)
+    return (trained...,
+            test_time=test_time, predictive_output=predictive_output, closed_output=closed_output)
 end
 
 function build_closed_prediction_runs(datas; shift=1, washout=1000, train_len=5000, predict_len=1250, rng=MersenneTwister(42))
@@ -167,31 +89,84 @@ function plot_closed_predictions(base_run, other_runs)
 end
 
 
-rng = rand(Int); println("Random seed: ", rng)
-rng = MersenneTwister(rng)
 
-cutting_data = cutting(data_used, 5000)
+# rng = rand(Int); println("Random seed: ", rng)
+rng = MersenneTwister(42)
 
-decay_data = modify_data(data_used, (ρ, u0, t, u) -> (ρ, u0, t, exponential_decay(u, t, 0.01)))
-cutting_decay = cutting(decay_data, 5000)
-check_data_plot(8, data_used, decay_data)
+p = (N, I_wave, K_wave)
+prob = ODEProblem(hr_net!, u0, tspan, p)
+sol = solve(prob, Tsit5(), saveat=0.5, reltol=1e-4)
+data = reduce(hcat, [[sol.u[t][3i-2] for i in 1:N] for t in 1:length(sol.t)])
+results = run_closed_prediction(data; train_len=5000, predict_len=5000, res_size=10000, rng=rng)
 
-transient_data = modify_data(data_used, (ρ, u0, t, u) -> (ρ, u0, transient_removal(u, t, 50.0)...))
-check_data_plot(8, data_used, transient_data)
+fig = Figure(size=(1200, 900))
 
-results0 = gen_trained_data(data_used[1]; rng=rng)
-results1 = gen_trained_data(decay_data[1]; rng=rng)
-results2 = gen_trained_data(transient_data[1]; rng=rng)
-results3 = gen_trained_data(cutting_decay[1]; rng=rng)
+ax1 = Axis(fig[1, 1], title="Training Input Data", xlabel="Time", ylabel="Neuron Index")
+lines!(ax1, sol.t, 1:N, data[:, 1:size(results.input_data, 2)]', colormap=:magma)
+ax2 = Axis(fig[1, 2], title="Training Target Data", xlabel="Time", ylabel="Neuron Index")
+lines!(ax2, sol.t, 1:N, results.target_data', colormap=:magma)
+ax3 = Axis(fig[2, 1], title="Open-loop Prediction", xlabel="Time", ylabel="Neuron Index")
+lines!(ax3, results.test_time, 1:N, results.predictive_output', colormap=:magma)
+ax4 = Axis(fig[2, 2], title="Closed-loop Prediction", xlabel="Time", ylabel="Neuron Index")
+lines!(ax4, results.test_time, 1:N, results.closed_output', colormap=:magma)
 
-if @isdefined(data_used)
-    base_index = 1
-    closed_runs = build_closed_prediction_runs(data_used; shift=1, washout=1000, train_len=5000,
-                                                predict_len=1250, rng=rng)
-    other_runs = closed_runs[setdiff(1:length(closed_runs), [base_index])]
-    fig_closed = plot_closed_predictions(closed_runs[base_index], other_runs)
-    display(fig_closed)
+display(fig)
+
+fig = Figure(size=(1200, 400 * N + 10))
+
+Label(fig[1, 1, Top()], "Training Input", fontsize=14, font=:bold, padding=(0, 0, 20, 0))
+Label(fig[1, 2, Top()], "Training Target", fontsize=14, font=:bold, padding=(0, 0, 20, 0))
+Label(fig[1, 3, Top()], "Open-loop Prediction", fontsize=14, font=:bold, padding=(0, 0, 20, 0))
+Label(fig[1, 4, Top()], "Closed-loop Prediction", fontsize=14, font=:bold, padding=(0, 0, 20, 0))
+
+input_time = sol.t[1:size(results.input_data, 2)]
+target_time = sol.t[1:size(results.target_data, 2)]
+
+for i in 1:N
+    # Training Input
+    ax1 = Axis(fig[i, 1], ylabel="Neuron $i")
+    lines!(ax1, input_time, results.input_data[i, :], color=:blue)
+    
+    # Training Target
+    ax2 = Axis(fig[i, 2])
+    lines!(ax2, target_time, results.target_data[i, :], color=:green)
+    
+    # Open-loop Prediction
+    ax3 = Axis(fig[i, 3])
+    lines!(ax3, results.test_time, results.test_data[i, :], color=:black, linestyle=:dash, alpha=0.5, label="Target")
+    lines!(ax3, results.test_time, results.predictive_output[i, :], color=:orange, label="Pred")
+    
+    # Closed-loop Prediction
+    ax4 = Axis(fig[i, 4])
+    lines!(ax4, results.test_time, results.test_data[i, :], color=:black, linestyle=:dash, alpha=0.5)
+    lines!(ax4, results.test_time, results.closed_output[i, :], color=:red)
+    
+    # 마지막 행에만 xlabel 표시
+    if i == N
+        ax1.xlabel = "Time"
+        ax2.xlabel = "Time"
+        ax3.xlabel = "Time"
+        ax4.xlabel = "Time"
+    end
 end
+
+for i in 1:N
+    rowsize!(fig.layout, i, Auto())
+end
+
+# 1부터 4까지의 모든 열이 동일한 비율로 확장되도록 설정
+for j in 1:4
+    colsize!(fig.layout, j, Auto())
+end
+
+# if @isdefined(data_used)
+#     base_index = 1
+#     closed_runs = build_closed_prediction_runs(data_used; shift=1, washout=1000, train_len=5000,
+#                                                 predict_len=1250, rng=rng)
+#     other_runs = closed_runs[setdiff(1:length(closed_runs), [base_index])]
+#     fig_closed = plot_closed_predictions(closed_runs[base_index], other_runs)
+#     display(fig_closed)
+# end
 
 
 
@@ -199,4 +174,4 @@ end
 # esn_LE = LyapunovExponent(esn, readout, 1; all_LE=false)[1]
 # println(propertynames(esns[1]), ", ", propertynames(readouts[1]))
 
-# fig3 = plot_prediction(rho_used, test_datas, outputs)
+# fig3 = plot_prediction(rho_used, test_datas, outputs) 

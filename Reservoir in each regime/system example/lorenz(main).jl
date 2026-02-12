@@ -1,7 +1,3 @@
-"""
-
-"""
-
 function lorenz!(du, u, p, t)
     σ, ρ, β = p
     du[1] = σ * (u[2] - u[1])
